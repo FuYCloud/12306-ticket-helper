@@ -1,6 +1,4 @@
-# 12306 抢票助手 · 使用说明
-
-## 简介
+# 12306 抢票助手
 
 基于 Selenium 的 12306 自动抢票工具，支持定时查询、自动下单、选座及邮件通知。  
 首次扫码登录后，可保存登录记录，后续无需重复扫码。
@@ -16,10 +14,11 @@
 ├── data/                      扫码记录（自动生成）
 ├── config.yml                 配置文件
 ├── requirements.txt
+├── LICENSE
+├── README.md
 ├── 安装&更新依赖.cmd
 ├── 获取车站Cookie值.cmd
-├── 开始抢票.cmd
-└── 使用说明.md
+└── 开始抢票.cmd
 ```
 
 ## 环境要求
@@ -107,6 +106,10 @@
 | `utils/sendemail.py` | 邮件发送模块 |
 | `utils/cookie_manager.py` | 扫码记录管理 |
 | `utils/keep_alive.py` | 会话保活模块 |
+
+## 许可证
+
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
 
 ## 免责声明
 
