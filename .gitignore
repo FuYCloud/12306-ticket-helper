@@ -21,6 +21,9 @@ confirm_error.png
 # 扫码记录（含登录凭证，切勿提交）
 data/
 
+# ChromeDriver 由「安装&更新依赖」自动下载，不提交
+asset/chromedriver.exe
+
 # IDE 配置（可选）
 .idea/
 .vscode/
