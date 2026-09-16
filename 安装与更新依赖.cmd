@@ -1,34 +1,33 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ============================================
-echo   12306 æŠ¢ç¥¨å·¥å…· - é¦–æ¬¡ä½¿ç”¨ä¾èµ–å®‰è£…
+echo   12306 ÇÀÆ±¹¤¾ß - Ê×´ÎÊ¹ÓÃÒÀÀµ°²×°
 echo ============================================
 echo.
 
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [é”™è¯¯] æœªæ£€æµ‹åˆ° pythonï¼Œè¯·å…ˆå®‰è£… Python å¹¶åŠ å…¥ PATHã€‚
+    echo [´íÎó] Î´¼ì²âµ½ python£¬ÇëÏÈ°²×° Python ²¢¼ÓÈë PATH¡£
     pause
     exit /b 1
 )
 
-echo [1/4] å‡çº§ pip...
+echo [1/4] Éı¼¶ pip...
 python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 echo.
-echo [2/4] å®‰è£…é¡¹ç›®ä¾èµ–...
+echo [2/4] °²×°ÏîÄ¿ÒÀÀµ...
 python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120
 
 echo.
-echo [3/4] å®‰è£… / æ›´æ–° ChromeDriver...
+echo [3/4] °²×° / ¸üĞÂ ChromeDriver...
 python tools\update_chromedriver.py
 
 echo.
-echo [4/4] éªŒè¯ selenium...
-python -c "import selenium; print('selenium ç‰ˆæœ¬:', selenium.__version__)"
+echo [4/4] ÑéÖ¤ selenium...
+python -c "import selenium; print('selenium °æ±¾:', selenium.__version__)"
 
 echo.
-echo å®‰è£…å®Œæˆã€‚
+echo °²×°Íê³É¡£
 pause

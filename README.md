@@ -16,7 +16,7 @@
 ├── requirements.txt
 ├── LICENSE
 ├── README.md
-├── 安装&更新依赖.cmd
+├── 安装与更新依赖.cmd
 ├── 获取车站Cookie值.cmd
 └── 开始抢票.cmd
 ```
@@ -31,7 +31,7 @@
 
 ### 1. 安装依赖与 ChromeDriver
 
-双击 **安装&更新依赖.cmd**。
+双击 **安装与更新依赖.cmd**。
 
 脚本将自动完成：
 
@@ -88,13 +88,13 @@
 - 邮件密码需使用 SMTP 授权码，非登录密码。
 - 运行日志位于 `app.log`。
 - 扫码记录保存在 `data/cookies.json`，请勿分享或提交到 Git。
-- 若 ChromeDriver 版本不匹配，重新运行“安装&更新依赖”或手动替换。
+- 若 ChromeDriver 版本不匹配，重新运行“安装与更新依赖”或手动替换。
 
 ## 文件说明
 
 | 文件 | 作用 |
 |---|---|
-| `安装&更新依赖.cmd` | 安装依赖、更新 ChromeDriver |
+| `安装与更新依赖.cmd` | 安装依赖、更新 ChromeDriver |
 | `获取车站Cookie值.cmd` | 查询车站 cookie 值 |
 | `开始抢票.cmd` | 启动抢票程序 |
 | `config.yml` | 配置文件 |
