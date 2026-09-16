@@ -21,8 +21,32 @@ STARTS          = cfg("起点站", "")
 ENDS            = cfg("终点站", "")
 DTIME           = cfg("购票日期", "")
 ORDER           = cfg("车次序号", 1)
-USERS           = [u for u in cfg("乘车人", []) if u]
-XB              = cfg("席别", "二等座")
+
+_raw_users = cfg("乘车人", [])
+if isinstance(_raw_users, str):
+    _raw_users = [_raw_users]
+USERS = [u for u in _raw_users if u]
+
+_raw_seats = cfg("席别", "二等座")
+if isinstance(_raw_seats, str):
+    _raw_seats = [_raw_seats]
+SEATS = [s for s in _raw_seats if s] or ["二等座"]
+
+PER_USER_SEAT = str(cfg("启用按乘客设置席别", False)).strip().lower() in ("true", "1", "yes")
+
+if not USERS:
+    USER_SEAT = {}
+elif PER_USER_SEAT and len(SEATS) > 1:
+    USER_SEAT = {}
+    for i, u in enumerate(USERS):
+        USER_SEAT[u] = SEATS[i] if i < len(SEATS) else SEATS[-1]
+else:
+    USER_SEAT = {u: SEATS[0] for u in USERS}
+
+_unique_seats = set(USER_SEAT.values()) if USER_SEAT else set()
+MULTI_SEAT = len(_unique_seats) > 1
+UNIFIED_SEAT = next(iter(_unique_seats)) if len(_unique_seats) == 1 else SEATS[0]
+
 STUDENT         = cfg("学生票", "false")
 EXECUTABLE_PATH = cfg("驱动路径", "./asset/chromedriver.exe")
 SEAT            = cfg("座位偏好", "")
@@ -59,7 +83,6 @@ class Byticket(object):
     dtime = DTIME
     order = ORDER
     users = USERS
-    xb = XB
     student = str(STUDENT).strip().lower() in ("true", "1", "yes")
     seat = SEAT
 
@@ -70,6 +93,8 @@ class Byticket(object):
     def __init__(self):
         self.driver = None
         self.wait = None
+        self.xb = UNIFIED_SEAT
+        self.multi_seat = MULTI_SEAT
 
     def _init_driver(self):
         options = Options()
@@ -133,11 +158,11 @@ class Byticket(object):
                 if ch == "\r":
                     print()
                     return "".join(chars)
-                elif ch == "\x08":  
+                elif ch == "\x08":
                     if chars:
                         chars.pop()
                         print("\b \b", end="", flush=True)
-                elif ch == "\x03":  
+                elif ch == "\x03":
                     raise KeyboardInterrupt
                 else:
                     chars.append(ch)
@@ -296,6 +321,48 @@ class Byticket(object):
             logging.error("登录过程中发生错误: %s", e)
             raise
 
+    def _set_seat_types(self, user_rows):
+        """
+        在订单确认页为每位乘客设置席别。
+        user_rows: {乘客姓名: 对应的 li 元素}
+        """
+        for idx, user in enumerate(self.users, start=1):
+            seat = USER_SEAT.get(user)
+            if not seat:
+                continue
+
+            seat_select_el = None
+            try:
+                seat_select_el = self.driver.find_element(By.ID, f"seatType_{idx}")
+            except Exception:
+                pass
+
+            if seat_select_el is None and user in user_rows:
+                try:
+                    seat_select_el = user_rows[user].find_element(By.XPATH, './/select')
+                except Exception:
+                    pass
+
+            if seat_select_el is None:
+                logging.warning(f"未找到「{user}」的席别选择框，跳过")
+                continue
+
+            try:
+                seat_select = Select(seat_select_el)
+                matched = False
+                for option in seat_select.options:
+                    if seat in option.text:
+                        seat_select.select_by_visible_text(option.text)
+                        matched = True
+                        break
+                if matched:
+                    logging.info(f"已为「{user}」选择席别「{seat}」")
+                else:
+                    logging.warning(f"席别「{seat}」在「{user}」的可选项中不存在")
+            except Exception as e:
+                logging.error(f"为「{user}」设置席别失败：{e}")
+                raise
+
     def set_cookies(self):
         try:
             self.driver.add_cookie({"name": "_jc_save_fromStation", "value": self.starts})
@@ -307,7 +374,11 @@ class Byticket(object):
             raise
 
     def _select_seat(self):
-        """在选座框中按席别 + 座位号选择。"""
+        """在选座框中按席别 + 座位号选择。多席别订单跳过。"""
+        if self.multi_seat:
+            logging.info("订单包含多种席别，跳过在线选座，由系统自动分配座位")
+            return False
+
         prefix = SEAT_TYPE_PREFIX.get(self.xb, "erdeng")
 
         try:
@@ -355,6 +426,8 @@ class Byticket(object):
         try:
             self.driver.get(self.ticket_url)
             self.set_cookies()
+
+            user_rows = {}
 
             count = 0
             while True:
@@ -407,6 +480,7 @@ class Byticket(object):
                         label = check.find_element(By.XPATH, './label')
                         if user in label.text:
                             check.find_element(By.XPATH, './input').click()
+                            user_rows[user] = check
                             break
             except Exception as e:
                 logging.error("选择乘车人时发生错误: %s", e)
@@ -423,13 +497,9 @@ class Byticket(object):
                 raise
 
             try:
-                seat_select = Select(self.driver.find_element(By.XPATH, '//select[@id="seatType_1"]'))
-                for option in seat_select.options:
-                    if self.xb in option.text:
-                        seat_select.select_by_visible_text(option.text)
-                        break
+                self._set_seat_types(user_rows)
             except Exception as e:
-                logging.error("选择席别时发生错误: %s", e)
+                logging.error("设置席别时发生错误: %s", e)
                 raise
 
             try:
