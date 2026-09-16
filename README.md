@@ -40,7 +40,7 @@
 - 检测本机 Chrome 版本
 - 从国内镜像下载并安装匹配的 ChromeDriver 到 `asset/`
 
-若自动更新失败，可手动下载对应版本，替换 `asset/chromedriver.exe`。
+若自动更新失败，可手动下载对应版本，放入 asset/ 目录，并重命名为 chromedriver.exe。
 
 ### 2. 获取车站 Cookie 值
 
