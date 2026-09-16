@@ -1,6 +1,7 @@
 # utils/keep_alive.py
 """
-主动保活线程：在等待抢票期间，定期执行轻量操作维持 12306 登录会话。
+主动保活线程：在等待抢票期间，定期检查 12306 会话状态。
+默认静默运行，不会将浏览器窗口置顶或抢焦点。
 """
 
 import logging
@@ -16,32 +17,35 @@ class KeepAlive:
         ka.start()
         ...
         ka.stop()
+
+    :param silent: True（默认）为静默模式，仅读取 URL，不切换窗口；
+                   False 为主动模式，会切换到第一个窗口再读取（可能置顶）。
     """
 
-    def __init__(self, driver, interval=480, check_url=None):
-        """
-        :param driver:   Selenium WebDriver 实例
-        :param interval: 保活间隔（秒），默认 480 秒（8 分钟）
-        :param check_url: 用于检测会话是否有效的 URL，默认用 12306 购票页
-        """
+    def __init__(self, driver, interval=480, check_url=None, silent=True):
         self.driver = driver
         self.interval = interval
         self.check_url = check_url or "https://kyfw.12306.cn/otn/leftTicket/init"
+        self.silent = silent
         self._stop_event = threading.Event()
         self._thread = None
 
     def _loop(self):
-        logging.info(f"保活线程已启动，间隔 {self.interval} 秒")
+        mode = "静默" if self.silent else "主动"
+        logging.info(f"保活线程已启动（{mode}模式），间隔 {self.interval} 秒")
+
         while not self._stop_event.is_set():
             for _ in range(self.interval):
                 if self._stop_event.is_set():
+                    logging.info("保活线程已停止")
                     return
                 time.sleep(1)
 
             try:
-                handles = self.driver.window_handles
-                if handles:
-                    self.driver.switch_to.window(handles[0])
+                if not self.silent:
+                    handles = self.driver.window_handles
+                    if handles:
+                        self.driver.switch_to.window(handles[0])
 
                 current_url = self.driver.current_url
                 if "login" in current_url.lower():
