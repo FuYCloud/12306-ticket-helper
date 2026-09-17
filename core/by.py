@@ -51,7 +51,7 @@ STUDENT         = cfg("学生票", "false")
 EXECUTABLE_PATH = cfg("驱动路径", "./asset/chromedriver.exe")
 SEAT            = cfg("座位偏好", "")
 
-MAX_QUERY           = cfg("最大查询次数", 30)
+MAX_QUERY           = cfg("最大查询次数", 0)
 QUERY_INTERVAL      = cfg("查询间隔", 0.05)
 SEAT_ROW_START      = cfg("选座起始排", 1)
 SEAT_ROW_END        = cfg("选座结束排", 5)
@@ -60,8 +60,10 @@ LOGIN_CHOICE_TIMEOUT = cfg("登录选择超时", 60)
 POST_SUCCESS_WAIT   = cfg("成功后停留", 60)
 HIDE_QRCODE         = cfg("隐藏无关二维码", True)
 
+DEBUG_MODE = str(cfg("调试模式", False)).strip().lower() in ("true", "1", "yes")
+
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG if DEBUG_MODE else logging.INFO)
 if logger.handlers:
     logger.handlers.clear()
 handler = logging.FileHandler('app.log', mode='a', encoding='utf-8')
@@ -96,6 +98,15 @@ class Byticket(object):
         self.xb = UNIFIED_SEAT
         self.multi_seat = MULTI_SEAT
 
+    def close(self):
+        """关闭浏览器（外部手动调用）"""
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception as e:
+                logging.debug(f"关闭浏览器时异常: {e}")
+            self.driver = None
+
     def _init_driver(self):
         options = Options()
         options.page_load_strategy = 'eager'
@@ -119,6 +130,7 @@ class Byticket(object):
         )
 
         self.wait = WebDriverWait(self.driver, 10, poll_frequency=0.1)
+        logging.info("浏览器已启动")
 
     def _safe_click(self, element):
         """三级兜底点击：原生 click → JS click → ActionChains。"""
@@ -226,19 +238,45 @@ class Byticket(object):
                 return 0;
             """)
             if injected:
-                logging.info("已注入 CSS 隐藏页脚二维码")
+                logging.debug("已注入 CSS 隐藏页脚二维码")
         except Exception as e:
-            logging.warning("注入隐藏 CSS 失败（可忽略）: %s", e)
+            logging.debug(f"注入隐藏 CSS 失败: {e}")
+
+    def _is_logged_in(self):
+        """判断当前是否已登录成功"""
+        try:
+            url = self.driver.current_url
+        except Exception:
+            return False
+        if "login" in url.lower() or "passport" in url.lower():
+            return False
+        for xp in (
+            '//a[contains(text(),"我的12306")]',
+            '//a[contains(text(),"退出")]',
+            '//div[contains(@class,"user-info")]',
+        ):
+            try:
+                self.driver.find_element(By.XPATH, xp)
+                return True
+            except Exception:
+                continue
+        return False
 
     def _cookie_login(self, record):
         """用指定记录里的 Cookie 尝试登录。返回 True/False。"""
         account_name = record["account"]
         cookies = record["cookies"]
 
-        self.driver.get(self.login_url)
-        time.sleep(1)
-
         try:
+            self.driver.get(self.login_url)
+            time.sleep(0.8)
+
+            try:
+                self.driver.delete_all_cookies()
+            except Exception as e:
+                logging.debug(f"清除旧 cookie 时异常: {e}")
+
+            added = 0
             for c in cookies:
                 cookie_dict = {
                     "name": c["name"],
@@ -248,46 +286,75 @@ class Byticket(object):
                 }
                 try:
                     self.driver.add_cookie(cookie_dict)
-                except Exception:
-                    pass
+                    added += 1
+                except Exception as e:
+                    logging.debug(f"添加 cookie [{c['name']}] 失败: {e}")
+
+            logging.info(f"已为「{account_name}」注入 {added}/{len(cookies)} 个 cookie")
 
             self.driver.get(self.initmy_url)
             time.sleep(2)
 
-            if "login" in self.driver.current_url.lower():
+            if self._is_logged_in():
+                logging.info(f"使用扫码记录「{account_name}」登录成功！")
+                touch_record(account_name)
+                return True
+            else:
                 logging.warning(f"扫码记录「{account_name}」已失效，需要重新扫码。")
                 return False
-
-            logging.info(f"使用扫码记录「{account_name}」登录成功！")
-            touch_record(account_name)
-            return True
         except Exception as e:
             logging.warning(f"Cookie 登录失败：{e}")
             return False
 
     def _scan_login(self):
         """走扫码登录流程。"""
-        self.driver.get(self.login_url)
+        try:
+            self.driver.delete_all_cookies()
+        except Exception:
+            pass
 
-        account = self.wait.until(EC.presence_of_element_located(
-            (By.XPATH, '//div[@class="login-box"]//li[@class="login-hd-account"]/a')))
-        account.click()
+        self.driver.get(self.login_url)
+        time.sleep(1)
+
+        try:
+            account = self.wait.until(EC.presence_of_element_located(
+                (By.XPATH, '//div[@class="login-box"]//li[@class="login-hd-account"]/a')))
+            self._safe_click(account)
+        except Exception as e:
+            logging.debug(f"切换扫码登录标签时异常（可能已在此页）: {e}")
+
         logging.info("请扫码登录！")
 
-        WebDriverWait(self.driver, 10, poll_frequency=0.1).until(
-            EC.presence_of_element_located((By.ID, "J-qrImg"))
-        )
+        try:
+            WebDriverWait(self.driver, 10, poll_frequency=0.1).until(
+                EC.presence_of_element_located((By.ID, "J-qrImg"))
+            )
+        except Exception:
+            logging.warning("未检测到登录二维码，页面结构可能已变化")
 
         deadline = time.time() + SCAN_TIMEOUT
+        last_log_time = 0
         while time.time() < deadline:
-            if self.driver.current_url == self.initmy_url:
+            if self._is_logged_in():
                 break
+
             self._inject_hide_css()
+
+            now = time.time()
+            if now - last_log_time > 5:
+                try:
+                    current_url = self.driver.current_url
+                except Exception:
+                    current_url = ""
+                logging.debug(f"等待扫码中，当前 URL: {current_url}")
+                last_log_time = now
+
             time.sleep(1)
         else:
             raise Exception(f"登录超时（{SCAN_TIMEOUT} 秒内未检测到登录成功）")
 
         logging.info("扫码登录成功！")
+        time.sleep(1)
 
         try:
             cookies = self.driver.get_cookies()
@@ -322,10 +389,7 @@ class Byticket(object):
             raise
 
     def _set_seat_types(self, user_rows):
-        """
-        在订单确认页为每位乘客设置席别。
-        user_rows: {乘客姓名: 对应的 li 元素}
-        """
+        """在订单确认页为每位乘客设置席别。"""
         for idx, user in enumerate(self.users, start=1):
             seat = USER_SEAT.get(user)
             if not seat:
@@ -423,16 +487,18 @@ class Byticket(object):
         return False
 
     def start(self):
+        """主流程，成功返回 True，失败返回 False。"""
         try:
             self.driver.get(self.ticket_url)
             self.set_cookies()
 
             user_rows = {}
-
             count = 0
+            last_log_count = 0
+
             while True:
-                if count > MAX_QUERY:
-                    logging.error("超过最大查询次数，退出程序。")
+                if MAX_QUERY > 0 and count > MAX_QUERY:
+                    logging.error(f"超过最大查询次数（{MAX_QUERY}），退出程序。")
                     return False
 
                 try:
@@ -441,7 +507,10 @@ class Byticket(object):
                     )
                     self._safe_click(query_btn)
                     count += 1
-                    logging.info(f"第 {count} 次查询...")
+
+                    if count - last_log_count >= 10:
+                        logging.info(f"已查询 {count} 次...")
+                        last_log_count = count
 
                     book_btns = WebDriverWait(self.driver, 3, poll_frequency=0.1).until(
                         EC.presence_of_all_elements_located(
@@ -462,10 +531,10 @@ class Byticket(object):
                             break
                         time.sleep(0.02)
                     self.driver.switch_to.window(self.driver.window_handles[-1])
+                    logging.info(f"已进入订单页面（第 {count} 次查询）")
                     break
 
                 except Exception:
-                    logging.warning("尚未开始预订，继续查询...")
                     time.sleep(QUERY_INTERVAL)
                     continue
 
@@ -481,6 +550,7 @@ class Byticket(object):
                         if user in label.text:
                             check.find_element(By.XPATH, './input').click()
                             user_rows[user] = check
+                            logging.info(f"已勾选乘客「{user}」")
                             break
             except Exception as e:
                 logging.error("选择乘车人时发生错误: %s", e)
@@ -505,9 +575,9 @@ class Byticket(object):
             try:
                 submit_btn = self.driver.find_element(By.ID, "submitOrder_id")
                 self._safe_click(submit_btn)
+                logging.info("已点击提交订单")
 
                 time.sleep(0.3)
-
                 self._select_seat()
 
                 confirm_btn = WebDriverWait(self.driver, 6, poll_frequency=0.1).until(
@@ -539,8 +609,7 @@ class Byticket(object):
                 except Exception:
                     pass
 
-                logging.info("抢票成功，请尽快支付！")
-                time.sleep(POST_SUCCESS_WAIT)
+                logging.info("抢票成功，请尽快支付！浏览器将保留，可手动操作。")
                 return True
 
             except Exception as e:
@@ -550,8 +619,6 @@ class Byticket(object):
         except Exception as e:
             logging.error("主流程发生错误: %s", e)
             return False
-        finally:
-            self.driver.quit()
 
 
 if __name__ == '__main__':

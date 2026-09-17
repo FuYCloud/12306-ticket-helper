@@ -49,14 +49,28 @@ def _is_browser_closed_error(err_text):
     return any(k in err_text for k in keywords)
 
 
+def _wait_browser_closed(by):
+    """等待浏览器被手动关闭。检测到连接断开或窗口消失后返回。"""
+    while True:
+        try:
+            _ = by.driver.window_handles
+            time.sleep(1)
+        except Exception:
+            return
+
+
 def job_callback(by):
+    """执行抢票。抢票成功后保持浏览器打开，直到用户手动关闭。"""
     try:
         result = by.start()
         if result:
             _send_mail_async("12306抢票成功", "车票已成功抢到，请尽快支付！")
+            logging.info("抢票成功，浏览器保持打开，请手动完成支付。关闭浏览器后程序将自动退出。")
+            _wait_browser_closed(by)
+            logging.info("浏览器已关闭，程序退出。")
         else:
             _send_mail_async("购票失败", "未能成功抢到车票，请检查日志或稍后再试。")
-        sys.exit(0)
+            by.close()
     except Exception as e:
         err_text = str(e).lower()
         if _is_browser_closed_error(err_text):
@@ -65,7 +79,8 @@ def job_callback(by):
         else:
             logging.error("任务执行过程中发生错误: %s", e)
             _send_mail_async("购票异常", f"抢票过程出错：{e}")
-        sys.exit(1)
+        by.close()
+    sys.exit(0)
 
 
 def wait_until(target_str):
